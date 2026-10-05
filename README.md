@@ -5,7 +5,7 @@ ENGR1010J（SJTU）作业一键提交工具：一条命令完成 `git pull → �
 ```powershell
 submit lab1 t1          # 提交 lab1/t1:   feat(lab1): t1 ok[joj]
 submit lab1 t3 fix      # 提交 lab1/t3:   fix(lab1): t3 ok[joj]
-submit lab1             # 提交 lab1 下所有题: feat(lab1): t1 t2 t3 t4 ok[joj]
+submit lab1             # 提交 lab1 下所有题,message 只列有改动的题: feat(lab1): t1 t3 ok[joj]
 submit release lab1     # 发 Release(tag 与标题都是 lab1)
 ```
 
@@ -43,7 +43,7 @@ name 和学号会写进每个提交的源文件，所以输入后会显示即将
 submit <lab> [<task>] [feat|fix] [noheader]
 ```
 
-- `<task>` 省略时提交该 lab 下所有含源文件的题目。
+- `<task>` 省略时提交该 lab 下所有含源文件的题目；commit message 只列出**真正有改动**的题（例如只改了 t2 就是 `fix(lab1): t2 ok[joj]`），一题都没改时列出全部并做空提交。
 - 类型省略时为 `feat`。
 - `lab` 之后的参数顺序随意。
 

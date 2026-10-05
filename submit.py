@@ -255,22 +255,22 @@ def make_ascii(repo: Path, paths):
 
 
 def collect(repo: Path, lab, task):
-    """返回 (要 git add 的路径, 源文件, 题号列表)。task 为 None 表示整个 lab。"""
+    """返回 [(题号, 要 git add 的路径, 源文件)]。task 为 None 表示整个 lab。"""
     if task:
         paths, srcs = sources_of(repo, lab, task)
         if not paths:
             die(f"{lab}/{task} 下没有源文件({', '.join(SOURCE_EXTS)})。")
-        return paths, srcs, [task]
-    paths, srcs, done = [], [], []
+        return [(task, paths, srcs)]
+    found = []
     for t in all_tasks(repo, lab):
         p, s = sources_of(repo, lab, t)
         if p:
-            paths += p; srcs += s; done.append(t)
+            found.append((t, p, s))
         else:
             info(f"跳过 {lab}/{t}: 里面没有源文件。")
-    if not done:
+    if not found:
         die(f"{lab}/ 下没有找到任何题目(t1/、t2/ … 或 t1.m …)。")
-    return paths, srcs, done
+    return found
 
 
 def add_headers(repo: Path, srcs, cfg):
@@ -288,9 +288,9 @@ def submit(cfg, lab, task, ctype, with_header):
     apply_identity(repo, cfg)
     git(repo, "pull", "--ff-only")
 
-    paths, srcs, done = collect(repo, lab, task)
-    message = f"{ctype}({lab}): {' '.join(done)} ok[joj]"
-    info(f"commit message: {message}")
+    found = collect(repo, lab, task)
+    paths = [p for _, ps, _ in found for p in ps]
+    srcs = [s for _, _, ss in found for s in ss]
     if with_header:
         add_headers(repo, srcs, cfg)
     else:
@@ -304,9 +304,14 @@ def submit(cfg, lab, task, ctype, with_header):
     if ignored:
         info("以下文件被 .gitignore 白名单挡住,不会上传: " + ", ".join(ignored))
 
-    has_change = git(repo, "diff", "--cached", "--quiet", "--", *paths,
-                     check=False, capture=True).returncode != 0
-    if has_change:
+    # commit message 只写真正有改动的题;一题都没改(空提交重跑 JOJ3)时写全部
+    changed = [t for t, ps, _ in found
+               if git(repo, "diff", "--cached", "--quiet", "--", *ps,
+                      check=False, capture=True).returncode != 0]
+    message = f"{ctype}({lab}): {' '.join(changed or [t for t, _, _ in found])} ok[joj]"
+    info(f"commit message: {message}")
+
+    if changed:
         staged = git(repo, "diff", "--cached", "--name-status", "--", *paths, capture=True).stdout
         info("本次提交的文件:\n" + "".join("    " + ln + "\n" for ln in staged.splitlines()))
         # 带 pathspec 提交:只提交这些题,暂存区里别的东西原样留着
