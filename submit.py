@@ -106,16 +106,50 @@ def ask(prompt: str, default: str = "") -> str:
     return val or default
 
 
+# 步骤与课程 Guide 4.1 → 4.3 → 4.4 的顺序一致
+CLONE_HINT = (f"  还没 clone 的话,按课程指南:\n"
+              f"    1. 在 https://{COURSE_HOST}/git/ 用 jAccount 登录(Sign in with jAccount)\n"
+              f"    2. 配好 SSH 密钥(ssh-keygen,再把 id_ed25519.pub 加到 Gitea 的 SSH/GPG Keys)\n"
+              f"    3. 在个人仓库页点 Code → SSH 复制地址,运行 git clone <地址>\n"
+              f"  然后把 clone 出来的文件夹填到这里。")
+
+
+def course_repo_at(path: Path):
+    """path 位于课程仓库内则返回仓库根目录,否则 None。"""
+    root = repo_root(path) if path.is_dir() else None
+    return root if root and is_course_repo(root) else None
+
+
+def ask_repo(default=""):
+    print("课程仓库 = 你用 git clone 下来的个人作业仓库(里面有 Readme.md、lab1/ 等),\n"
+          "例如 D:\\courses\\<你的仓库名>。在仓库目录里运行 submit 时会自动带出。")
+    if not default:
+        print(CLONE_HINT)
+    while True:
+        # 把文件夹拖进终端时路径会带引号
+        raw = ask("课程仓库路径", default).strip("\"'")
+        p = Path(raw).expanduser()
+        if not raw or not p.is_dir():
+            print("  找不到这个文件夹,请重新输入。")
+            continue
+        root = repo_root(p)
+        if not root:
+            print("  这个文件夹不是 git 仓库。")
+            print(CLONE_HINT)
+            continue
+        if not is_course_repo(root):
+            print(f"  这个文件夹不在课程仓库里(它所属的 git 仓库 {root} 的 origin 不是 {COURSE_HOST}),"
+                  f"请重新输入。")
+            continue
+        if root != p.resolve():
+            info(f"使用仓库根目录: {root}")
+        return root
+
+
 def setup(old):
     print("首次使用(或重新配置),请填写以下信息(方括号里是默认值,直接回车即采用):")
-    here = repo_root(Path.cwd())
-    default_repo = old.get("repo") or (str(here) if here and is_course_repo(here) else "")
-    while True:
-        repo = ask("本地课程仓库路径", default_repo)
-        root = repo_root(Path(repo)) if repo and Path(repo).is_dir() else None
-        if root and is_course_repo(root):
-            break
-        print(f"  这不是指向 {COURSE_HOST} 的 git 仓库,请重新输入。")
+    here = course_repo_at(Path.cwd())
+    root = ask_repo(str(here) if here else old.get("repo", ""))
 
     # 姓名和学号会写进每个提交的源文件:不给任何默认值,必须本人亲手输入并确认
     while True:
@@ -146,13 +180,19 @@ def setup(old):
 
 
 def ensure_config(cfg):
+    """返回 (配置, 本次使用的仓库)。当前目录在某个课程仓库里时优先用它,且不改写配置。"""
     if not all(cfg.get(k) for k in REQUIRED):
         cfg = setup(cfg)
-    repo = Path(cfg["repo"])
-    if not (repo_root(repo) and is_course_repo(repo)):
-        info(f"记住的仓库路径不可用: {repo}")
-        cfg = setup(cfg)
-    return cfg
+    here = course_repo_at(Path.cwd())
+    if here:
+        if here != Path(cfg["repo"]):
+            info(f"当前目录在课程仓库 {here} 里,本次使用它(配置里记的是 {cfg['repo']})。")
+        return cfg, here
+    if not course_repo_at(Path(cfg["repo"])):
+        info(f"记住的仓库路径不可用了: {cfg['repo']}(被移动或删除?)")
+        cfg["repo"] = str(ask_repo())
+        save_config(cfg)
+    return cfg, Path(cfg["repo"])
 
 
 def apply_identity(repo: Path, cfg):
@@ -282,8 +322,7 @@ def add_headers(repo: Path, srcs, cfg):
             info(f"{rel} 开头已有学号,跳过。")
 
 
-def submit(cfg, lab, task, ctype, with_header):
-    repo = Path(cfg["repo"])
+def submit(cfg, repo: Path, lab, task, ctype, with_header):
     info(f"仓库: {repo}")
     apply_identity(repo, cfg)
     git(repo, "pull", "--ff-only")
@@ -375,8 +414,7 @@ def ensure_token(cfg, owner, name):
         token = None
 
 
-def release(cfg, lab):
-    repo = Path(cfg["repo"])
+def release(cfg, repo: Path, lab):
     owner, name = owner_and_name(repo)
     info(f"仓库: {repo}")
 
@@ -399,7 +437,9 @@ def release(cfg, lab):
 
     # 3. 不能已经 release 过
     if git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}", capture=True).stdout.strip():
-        die(f"远端已经有 tag {lab},说明已经 release 过。课程规定只能 release 一次,工具不会替你删旧的。")
+        die(f"远端已经有 tag {lab},说明已经 release 过。\n"
+            f"         Guide 5.4 与 Lab 说明规定只能 release 一次;仓库 Readme 2.5 另有「先在网页上删除\n"
+            f"         旧 Release 和 tag 再重发」的流程。两者不一致,重发前请先问助教。工具不会替你删除。")
     token = ensure_token(cfg, owner, name)
     status, rels = api("GET", f"/repos/{owner}/{name}/releases?limit=50", token)
     if status != 200:
@@ -412,7 +452,7 @@ def release(cfg, lab):
           f"    仓库        {owner}/{name}\n"
           f"    Tag / 标题  {lab}\n"
           f"    指向提交    {head[:8]}  {subject}\n"
-          f"注意: 课程规定每个 lab 只能 release 一次,发布后不要再改 {lab} 的文件。\n"
+          f"注意: Guide 5.4 与 Lab 说明规定每个 lab 只能 release 一次,发布后不要再改 {lab} 的文件。\n"
           f"      请确认 JOJ3 的 push 结果已经出来并且满意。")
     if ask(f"确认发布请输入 {lab}") != lab:
         die("没有确认,已取消,什么都没发。")
@@ -450,7 +490,7 @@ def main(argv):
     if argv[0] == "release":
         if len(argv) != 2 or not re.fullmatch(r"lab\d+", argv[1]):
             die("用法: submit release lab1")
-        release(ensure_config(cfg), argv[1])
+        release(*ensure_config(cfg), argv[1])
         return
 
     lab, rest = argv[0], argv[1:]
@@ -465,7 +505,7 @@ def main(argv):
     task = tasks[0] if tasks else None
     ctype = types[0] if types else "feat"
     with_header = not flags
-    submit(ensure_config(cfg), lab, task, ctype, with_header)
+    submit(*ensure_config(cfg), lab, task, ctype, with_header)
 
 
 if __name__ == "__main__":

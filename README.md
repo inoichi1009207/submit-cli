@@ -28,12 +28,16 @@ submit release lab1     # 发 Release(tag 与标题都是 lab1)
 
 | 项目 | 说明 |
 |---|---|
-| 本地课程仓库路径 | 你 `git clone` 下来的个人作业仓库，里面有 `lab1/` 等目录 |
+| 课程仓库路径 | 你 `git clone` 下来的个人作业仓库，里面有 `Readme.md`、`lab1/` 等。在仓库目录里运行时会自动带出 |
 | name | 英文名或拼音，**必须自己输入** |
 | 学号 | **必须自己输入** |
 | jAccount | 不带 `@sjtu.edu.cn` |
 
 name 和学号会写进每个提交的源文件，所以输入后会显示即将写入的注释，并要求输入 `y` 确认。
+
+还没 clone 仓库的话，先按课程指南完成：用 jAccount 登录 Gitea → 配置 SSH 密钥 → 在仓库页 Code → SSH 复制地址并 `git clone`。
+
+**使用哪个仓库**：当前目录位于某个课程仓库（origin 指向 `focs.gc.sjtu.edu.cn`）内时，本次就用它；否则用配置里记住的仓库。记住的仓库被移动或删除时，只会重新询问路径。
 
 配置保存在本目录下的 `config.json`（已被 `.gitignore` 排除）。重新配置：`submit --config`；查看：`submit --show`。
 
@@ -69,7 +73,9 @@ submit <lab> [<task>] [feat|fix] [noheader]
 submit release lab1
 ```
 
-发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab1`、远端尚无 `lab1` 的 tag 或 Release。通过后需**手动输入 `lab1` 确认**才会发布——课程规定每个 lab 只能 release 一次。
+发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab1`、远端尚无 `lab1` 的 tag 或 Release。通过后需**手动输入 `lab1` 确认**才会发布。
+
+> 关于能否重发：课程 Guide 5.4 与 Lab 说明规定每个 lab **只能 release 一次**，多次 release 会重扣分；而仓库自带的 Readme 2.5 描述了「先在网页上删除旧 Release 和 tag 再重发」的流程。两份文档不一致，本工具按更严格的一方处理：已有 tag 时拒绝发布，**也不会替你删除**。确需重发请先问助教。
 
 首次使用需要 Gitea access token：在 `https://focs.gc.sjtu.edu.cn/git/user/settings/applications` 生成，权限给 repository 读写，粘贴进来即可（输入不回显，验证通过后保存到 `config.json`）。
 
