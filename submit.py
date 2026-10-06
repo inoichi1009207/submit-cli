@@ -389,6 +389,43 @@ def api(method, path, token, body=None):
         die(f"连不上 Gitea API({e.reason})。校外可能需要先连 SJTU VPN。")
 
 
+def read_secret(prompt):
+    """读 token:每个字符回显一个 *。Windows 自带的 getpass 完全不回显,用户会以为卡住了。"""
+    if not sys.stdin.isatty():
+        return input(prompt)
+    if os.name != "nt":
+        return getpass.getpass(prompt)
+    import msvcrt
+    print(prompt, end="", flush=True)
+    buf = []
+    while True:
+        ch = msvcrt.getwch()
+        if ch in ("\r", "\n"):
+            print()
+            return "".join(buf)
+        if ch == "\x03":
+            print()
+            raise KeyboardInterrupt
+        if ch in ("\x00", "\xe0"):  # 方向键等功能键:后面还跟一个字符,一起丢掉
+            msvcrt.getwch()
+            continue
+        if ch == "\x08":
+            if buf:
+                buf.pop()
+                print("\b \b", end="", flush=True)
+            continue
+        if ch == "\x16":  # Ctrl+V 没被终端当成粘贴时,自己读剪贴板
+            res = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                                 capture_output=True, text=True)
+            pasted = res.stdout.strip() if res.returncode == 0 else ""
+            buf.extend(pasted)
+            print("*" * len(pasted), end="", flush=True)
+            continue
+        if ch.isprintable():
+            buf.append(ch)
+            print("*", end="", flush=True)
+
+
 def ensure_token(cfg, owner, name):
     token = cfg.get("token")
     while True:
@@ -396,15 +433,14 @@ def ensure_token(cfg, owner, name):
             print(f"发 Release 需要一个 Gitea access token(只需填一次):\n"
                   f"  1. 打开 {TOKEN_PAGE}\n"
                   f"  2. Generate New Token,权限里把 repository 设为 Read and Write\n"
-                  f"  3. 把生成的 token 粘贴到这里(输入时不显示)")
+                  f"  3. 把生成的 token 粘贴到这里(每个字符显示为 *;cmd 里可按 Ctrl+V 或点右键粘贴),回车结束")
             try:
-                # Windows 的 getpass 直接读控制台;输入来自管道时退回普通读取
-                token = (getpass.getpass("token: ") if sys.stdin.isatty()
-                         else input("token: ")).strip()
+                token = read_secret("token: ").strip()
             except EOFError:
                 die("输入被关闭,没能读取 token。")
             if not token:
                 die("没有输入 token。")
+            info(f"读到 {len(token)} 个字符,正在验证…")
         status, data = api("GET", f"/repos/{owner}/{name}", token)
         if status == 200:
             if cfg.get("token") != token:

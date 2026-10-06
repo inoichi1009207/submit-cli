@@ -79,7 +79,7 @@ submit release lab1
 
 > 课程 Guide 5.4 与 Lab 说明写的是每个 lab **只能 release 一次**，与仓库 Readme 2.5 不一致。本工具按 Readme 2.5 实现，并在重发确认时提示这一点。
 
-首次使用需要 Gitea access token：在 `https://focs.gc.sjtu.edu.cn/git/user/settings/applications` 生成，权限给 repository 读写，粘贴进来即可（输入不回显，验证通过后保存到 `config.json`）。
+首次使用需要 Gitea access token：在 `https://focs.gc.sjtu.edu.cn/git/user/settings/applications` 生成，权限给 repository 读写，粘贴进来即可（每个字符显示为 `*`，cmd 里可 Ctrl+V 或右键粘贴；验证通过后保存到 `config.json`）。
 
 > 通过 API 创建的 Release 能否触发课程的 `release.yaml`（隐藏用例）尚未实测。首次使用后请到 Issues 页确认隐藏用例结果已出现。
 
