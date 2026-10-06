@@ -73,9 +73,11 @@ submit <lab> [<task>] [feat|fix] [noheader]
 submit release lab1
 ```
 
-发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab1`、远端尚无 `lab1` 的 tag 或 Release。通过后需**手动输入 `lab1` 确认**才会发布。
+发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab1`。通过后需**手动输入 `lab1` 确认**才会发布。
 
-> 关于能否重发：课程 Guide 5.4 与 Lab 说明规定每个 lab **只能 release 一次**，多次 release 会重扣分；而仓库自带的 Readme 2.5 描述了「先在网页上删除旧 Release 和 tag 再重发」的流程。两份文档不一致，本工具按更严格的一方处理：已有 tag 时拒绝发布，**也不会替你删除**。确需重发请先问助教。
+**重新 release**：如果 `lab1` 已经发过（远端已有 tag 或同名 Release，含草稿），工具会明确提示，并按仓库 Readme 2.5 的流程操作：需输入 `rerelease lab1` 确认，然后依次删除旧 Release、删除 tag `lab1`（API 失败时改用 `git push` 删除）、清掉本地残留的同名 tag，最后用当前最新提交重新发布。任一步失败即停止，不会发布。
+
+> 课程 Guide 5.4 与 Lab 说明写的是每个 lab **只能 release 一次**，与仓库 Readme 2.5 不一致。本工具按 Readme 2.5 实现，并在重发确认时提示这一点。
 
 首次使用需要 Gitea access token：在 `https://focs.gc.sjtu.edu.cn/git/user/settings/applications` 生成，权限给 repository 读写，粘贴进来即可（输入不回显，验证通过后保存到 `config.json`）。
 

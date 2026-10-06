@@ -7,7 +7,8 @@
         submit lab1           -> 交 lab1 下所有题:   feat(lab1): t1 t2 t3 t4 ok[joj]
         submit lab1 fix       -> 同上,类型为 fix
         submit lab1 t1 noheader  -> 不自动补姓名学号注释
-    submit release <lab>      在 Gitea 上发 Release(tag 与标题都是 <lab>),需要确认
+    submit release <lab>      在 Gitea 上发 Release(tag 与标题都是 <lab>),需要确认;
+                              已发过时按仓库 Readme 2.5 删除旧 Release 和 tag 后重发(需额外确认)
     submit --config           重新填写 name / 学号 / jAccount / 仓库路径 / token
     submit --show             显示当前记住的配置(token 打码)
 
@@ -414,6 +415,26 @@ def ensure_token(cfg, owner, name):
         token = None
 
 
+def drop_old_release(repo: Path, owner, name, token, lab, old):
+    """仓库 Readme 2.5 的重发前置步骤:删旧 Release,再删 tag(删 Release 可能不会连带删 tag)。"""
+    for r in old:
+        status, data = api("DELETE", f"/repos/{owner}/{name}/releases/{r['id']}", token)
+        if status not in (204, 404):
+            die(f"删除旧 Release 失败(HTTP {status} {data.get('message', '')}),已停止,未重新发布。")
+        info(f"已删除旧 Release(id {r['id']})。")
+    if git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}", capture=True).stdout.strip():
+        status, data = api("DELETE", f"/repos/{owner}/{name}/tags/{lab}", token)
+        if status not in (204, 404):
+            info(f"API 删除 tag 失败(HTTP {status} {data.get('message', '')}),改用 git push 删除。")
+            git(repo, "push", "origin", f":refs/tags/{lab}")
+        if git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}", capture=True).stdout.strip():
+            die(f"远端 tag {lab} 仍然存在,已停止,未重新发布。请到网页上删除后再试。")
+        info(f"已删除远端 tag {lab}。")
+    # 本地残留的旧 tag 会让之后的 git pull 因 tag 冲突而失败
+    if git(repo, "tag", "-l", lab, capture=True).stdout.strip():
+        git(repo, "tag", "-d", lab)
+
+
 def release(cfg, repo: Path, lab):
     owner, name = owner_and_name(repo)
     info(f"仓库: {repo}")
@@ -435,26 +456,33 @@ def release(cfg, repo: Path, lab):
         die(f"最新提交是「{subject}」,scope 不是 {lab}。课程要求最新提交的 scope 与 Release tag 一致。\n"
             f"         先运行 submit {lab}(没改动也会做一次空提交),等 JOJ3 出结果后再 release。")
 
-    # 3. 不能已经 release 过
-    if git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}", capture=True).stdout.strip():
-        die(f"远端已经有 tag {lab},说明已经 release 过。\n"
-            f"         Guide 5.4 与 Lab 说明规定只能 release 一次;仓库 Readme 2.5 另有「先在网页上删除\n"
-            f"         旧 Release 和 tag 再重发」的流程。两者不一致,重发前请先问助教。工具不会替你删除。")
+    # 3. 是否已经 release 过(远端 tag,或任何 tag_name 相同的 Release,含草稿)
     token = ensure_token(cfg, owner, name)
     status, rels = api("GET", f"/repos/{owner}/{name}/releases?limit=50", token)
     if status != 200:
         die(f"查询已有 Release 失败(HTTP {status} {rels.get('message', '')})。")
-    if any(r.get("tag_name") == lab for r in rels):
-        die(f"已经存在 tag 为 {lab} 的 Release(可能是草稿),请到网页上检查。")
+    old = [r for r in rels if r.get("tag_name") == lab]
+    tag_exists = bool(git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}",
+                          capture=True).stdout.strip())
 
-    # 4. 人工确认
     print(f"\n即将发布 Release:\n"
           f"    仓库        {owner}/{name}\n"
           f"    Tag / 标题  {lab}\n"
           f"    指向提交    {head[:8]}  {subject}\n"
-          f"注意: Guide 5.4 与 Lab 说明规定每个 lab 只能 release 一次,发布后不要再改 {lab} 的文件。\n"
-          f"      请确认 JOJ3 的 push 结果已经出来并且满意。")
-    if ask(f"确认发布请输入 {lab}") != lab:
+          f"请确认 JOJ3 的 push 结果已经出来并且满意;发布后不要再改 {lab} 的文件。")
+
+    # 4. 人工确认。重发按仓库 Readme 2.5:先删旧 Release,再删 tag,然后重新发布
+    if old or tag_exists:
+        print(f"\n!! {lab} 已经 release 过"
+              + (f"(已有 {len(old)} 个 tag 为 {lab} 的 Release)" if old else "(远端已有 tag)")
+              + "。\n"
+              f"!! 按仓库 Readme 2.5,重新 release 需要先删除旧 Release 和 tag {lab},再重新发布。\n"
+              f"!! 删除不可恢复。\n"
+              f"!! 另外 Guide 5.4 与 Lab 说明写的是「只能 release 一次」,与 Readme 2.5 不一致,风险自负。")
+        if ask(f"确认删除旧的并重新发布请输入 rerelease {lab}") != f"rerelease {lab}":
+            die("没有确认,已取消,什么都没删、什么都没发。")
+        drop_old_release(repo, owner, name, token, lab, old)
+    elif ask(f"确认发布请输入 {lab}") != lab:
         die("没有确认,已取消,什么都没发。")
 
     status, data = api("POST", f"/repos/{owner}/{name}/releases", token, {
