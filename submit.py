@@ -8,7 +8,8 @@
         submit lab1 fix       -> 同上,类型为 fix
         submit lab1 t1 noheader  -> 不自动补姓名学号注释
     submit release <lab>      在 Gitea 上发 Release,需要确认。第一次 tag/标题为 <lab>;
-                              Lab 2 起可再发第二次,tag/标题自动用 <lab>-2(课程通知要求),不删旧的
+                              可再发第二次,tag/标题自动用 <lab>-2(课程通知要求),不删旧的。
+                              本地与 Gitea 不一致(未提交/未 push/远端更新)时先提醒,确认才继续
     submit --config           重新填写 name / 学号 / jAccount / 仓库路径 / token
     submit --show             显示当前记住的配置(token 打码)
 
@@ -455,25 +456,42 @@ def release(cfg, repo: Path, lab):
     owner, name = owner_and_name(repo)
     info(f"仓库: {repo}")
 
-    # 1. 本地与远端必须完全一致:Release 发的是远端最新提交
+    # 1. 本地要和 Gitea 上的最新版完全一致;不一致时列出差异,默认不发,用户确认才继续。
+    #    Release 指向的是 Gitea 上分支的最新提交,本地没交上去的东西不会包含在内。
     git(repo, "fetch", "origin")
-    head = git(repo, "rev-parse", "HEAD", capture=True).stdout.strip()
-    up = git(repo, "rev-parse", "@{u}", check=False, capture=True)
-    if up.returncode != 0:
+    if git(repo, "rev-parse", "@{u}", check=False, capture=True).returncode != 0:
         die("当前分支没有对应的远端分支。")
-    if head != up.stdout.strip():
-        die("本地与远端不一致(有没 push 的提交,或远端有新提交)。先 submit 或 git pull,再来 release。")
+    head = git(repo, "rev-parse", "@{u}", capture=True).stdout.strip()
+    ahead = int(git(repo, "rev-list", "--count", "@{u}..HEAD", capture=True).stdout)
+    behind = int(git(repo, "rev-list", "--count", "HEAD..@{u}", capture=True).stdout)
+    dirty = git(repo, "status", "--porcelain", "-uall", capture=True).stdout.splitlines()
+    problems = []
+    if dirty:
+        shown = "".join(f"        {ln}\n" for ln in dirty[:20])
+        more = f"        … 共 {len(dirty)} 项\n" if len(dirty) > 20 else ""
+        problems.append(f"有 {len(dirty)} 处改动还没提交(release 不会包含它们):\n{shown}{more}".rstrip())
+    if ahead:
+        problems.append(f"有 {ahead} 个本地提交还没 push(release 不会包含它们)")
+    if behind:
+        problems.append(f"Gitea 上比本地多 {behind} 个提交(release 会包含你本地还没有的内容)")
+    if problems:
+        print("\n本地和 Gitea 上的最新版不一致:")
+        for p in problems:
+            print(f"  - {p}")
+        print(f"建议先处理再 release:要交的改动用 submit {lab} 交上去,远端的新提交用 git pull 拉下来。")
+        if ask("仍要基于 Gitea 上现在的最新版 release 吗?输入 y 继续,其他任意键取消").lower() != "y":
+            die("已取消,什么都没发。")
     branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD", capture=True).stdout.strip()
 
-    # 2. 最新提交的 scope 必须等于 tag
-    subject = git(repo, "log", "-1", "--format=%s", capture=True).stdout.strip()
+    # 2. Gitea 上最新提交的 scope 必须等于 lab
+    subject = git(repo, "log", "-1", "--format=%s", "@{u}", capture=True).stdout.strip()
     m = re.match(r"[a-z]+\(([^)]+)\):", subject)
     if not m or m.group(1) != lab:
         die(f"最新提交是「{subject}」,scope 不是 {lab}。课程要求最新提交的 scope 与 Release tag 一致。\n"
             f"         先运行 submit {lab}(没改动也会做一次空提交),等 JOJ3 出结果后再 release。")
 
-    # 3. 定这次用哪个 tag。课程通知:从 Lab 2 起每个 lab 可 release 两次,
-    #    第二次的 tag 与标题必须是 labN-2(用 labN 可能丢分),之后不再给机会。
+    # 3. 定这次用哪个 tag。课程通知:每个 lab 可 release 两次(通知写从 Lab 2 起;
+    #    lab1 早已截止,不再单独限制),第二次的 tag 与标题必须是 labN-2,之后不再给机会。
     token = ensure_token(cfg, owner, name)
     status, rels = api("GET", f"/repos/{owner}/{name}/releases?limit=50", token)
     if status != 200:
@@ -486,12 +504,7 @@ def release(cfg, repo: Path, lab):
     second = f"{lab}-2"
     if used(second):
         die(f"{lab} 的两次 release 机会都已用掉({second} 已存在)。按课程通知,不会再有额外机会。")
-    if not used(lab):
-        tag = lab
-    elif int(lab[3:]) < 2:
-        die(f"{lab} 已经 release 过。课程通知里的第二次 release 从 Lab 2 开始才有,{lab} 只能 release 一次。")
-    else:
-        tag = second
+    tag = second if used(lab) else lab
 
     print(f"\n即将发布 Release:\n"
           f"    仓库        {owner}/{name}\n"

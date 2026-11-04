@@ -73,16 +73,20 @@ submit <lab> [<task>] [feat|fix] [noheader]
 submit release lab2
 ```
 
-第一次还是第二次由工具判断，命令都一样。发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab2`。
+第一次还是第二次由工具判断，命令都一样。
+
+发布前自动检查：
+
+1. **本地和 Gitea 上的最新版是否完全一致**：有未提交的改动或新文件、有没 push 的提交、或 Gitea 上有本地没有的提交，都会逐项列出并建议先处理（`submit lab2` 交上去 / `git pull` 拉下来）。默认不发，输入 `y` 才继续。Release 指向的是 Gitea 上的最新提交，本地没交上去的东西不会包含在内。
+2. Gitea 上最新提交的 scope 等于 `lab2`。
 
 | 情况 | 行为 |
 |---|---|
 | 还没发过 | tag / 标题用 `lab2`，输入 `lab2` 确认 |
-| `lab2` 已发过（Lab 2 起） | **第二次也是最后一次**：tag / 标题用 `lab2-2`，旧的 `lab2` 不动，输入 `lab2-2` 确认 |
+| `lab2` 已发过 | **第二次也是最后一次**：tag / 标题用 `lab2-2`，旧的 `lab2` 不动，输入 `lab2-2` 确认 |
 | `lab2-2` 已存在 | 拒绝，两次机会都用掉了 |
-| `lab1` 已发过 | 拒绝，第二次 release 从 Lab 2 才开始 |
 
-依据是课程通知：从 Lab 2 起每个 lab 可以 release 两次，第二次必须用 `labn-2` 作为 tag 和标题（用 `labn` 可能丢分）；这个名额是防误发的保险，用掉后不再给额外机会。「已发过」指远端已有该 tag，或已有该 tag 的 Release（含草稿）。
+依据是课程通知：每个 lab 可以 release 两次，第二次必须用 `labn-2` 作为 tag 和标题（用 `labn` 可能丢分）；这个名额是防误发的保险，用掉后不再给额外机会。通知写的是从 Lab 2 起，lab1 早已截止，工具对它不做单独限制。「已发过」指远端已有该 tag，或已有该 tag 的 Release（含草稿）。
 
 首次使用需要 Gitea access token：在 `https://focs.gc.sjtu.edu.cn/git/user/settings/applications` 生成，权限给 repository 读写，粘贴进来即可（每个字符显示为 `*`，cmd 里可 Ctrl+V 或右键粘贴；验证通过后保存到 `config.json`）。
 
