@@ -7,8 +7,8 @@
         submit lab1           -> 交 lab1 下所有题:   feat(lab1): t1 t2 t3 t4 ok[joj]
         submit lab1 fix       -> 同上,类型为 fix
         submit lab1 t1 noheader  -> 不自动补姓名学号注释
-    submit release <lab>      在 Gitea 上发 Release(tag 与标题都是 <lab>),需要确认;
-                              已发过时按仓库 Readme 2.5 删除旧 Release 和 tag 后重发(需额外确认)
+    submit release <lab>      在 Gitea 上发 Release,需要确认。第一次 tag/标题为 <lab>;
+                              Lab 2 起可再发第二次,tag/标题自动用 <lab>-2(课程通知要求),不删旧的
     submit --config           重新填写 name / 学号 / jAccount / 仓库路径 / token
     submit --show             显示当前记住的配置(token 打码)
 
@@ -451,26 +451,6 @@ def ensure_token(cfg, owner, name):
         token = None
 
 
-def drop_old_release(repo: Path, owner, name, token, lab, old):
-    """仓库 Readme 2.5 的重发前置步骤:删旧 Release,再删 tag(删 Release 可能不会连带删 tag)。"""
-    for r in old:
-        status, data = api("DELETE", f"/repos/{owner}/{name}/releases/{r['id']}", token)
-        if status not in (204, 404):
-            die(f"删除旧 Release 失败(HTTP {status} {data.get('message', '')}),已停止,未重新发布。")
-        info(f"已删除旧 Release(id {r['id']})。")
-    if git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}", capture=True).stdout.strip():
-        status, data = api("DELETE", f"/repos/{owner}/{name}/tags/{lab}", token)
-        if status not in (204, 404):
-            info(f"API 删除 tag 失败(HTTP {status} {data.get('message', '')}),改用 git push 删除。")
-            git(repo, "push", "origin", f":refs/tags/{lab}")
-        if git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}", capture=True).stdout.strip():
-            die(f"远端 tag {lab} 仍然存在,已停止,未重新发布。请到网页上删除后再试。")
-        info(f"已删除远端 tag {lab}。")
-    # 本地残留的旧 tag 会让之后的 git pull 因 tag 冲突而失败
-    if git(repo, "tag", "-l", lab, capture=True).stdout.strip():
-        git(repo, "tag", "-d", lab)
-
-
 def release(cfg, repo: Path, lab):
     owner, name = owner_and_name(repo)
     info(f"仓库: {repo}")
@@ -492,37 +472,44 @@ def release(cfg, repo: Path, lab):
         die(f"最新提交是「{subject}」,scope 不是 {lab}。课程要求最新提交的 scope 与 Release tag 一致。\n"
             f"         先运行 submit {lab}(没改动也会做一次空提交),等 JOJ3 出结果后再 release。")
 
-    # 3. 是否已经 release 过(远端 tag,或任何 tag_name 相同的 Release,含草稿)
+    # 3. 定这次用哪个 tag。课程通知:从 Lab 2 起每个 lab 可 release 两次,
+    #    第二次的 tag 与标题必须是 labN-2(用 labN 可能丢分),之后不再给机会。
     token = ensure_token(cfg, owner, name)
     status, rels = api("GET", f"/repos/{owner}/{name}/releases?limit=50", token)
     if status != 200:
         die(f"查询已有 Release 失败(HTTP {status} {rels.get('message', '')})。")
-    old = [r for r in rels if r.get("tag_name") == lab]
-    tag_exists = bool(git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{lab}",
-                          capture=True).stdout.strip())
+
+    def used(tag):  # 远端有该 tag,或有该 tag 的 Release(含草稿)
+        return any(r.get("tag_name") == tag for r in rels) or bool(
+            git(repo, "ls-remote", "--tags", "origin", f"refs/tags/{tag}", capture=True).stdout.strip())
+
+    second = f"{lab}-2"
+    if used(second):
+        die(f"{lab} 的两次 release 机会都已用掉({second} 已存在)。按课程通知,不会再有额外机会。")
+    if not used(lab):
+        tag = lab
+    elif int(lab[3:]) < 2:
+        die(f"{lab} 已经 release 过。课程通知里的第二次 release 从 Lab 2 开始才有,{lab} 只能 release 一次。")
+    else:
+        tag = second
 
     print(f"\n即将发布 Release:\n"
           f"    仓库        {owner}/{name}\n"
-          f"    Tag / 标题  {lab}\n"
+          f"    Tag / 标题  {tag}\n"
           f"    指向提交    {head[:8]}  {subject}\n"
           f"请确认 JOJ3 的 push 结果已经出来并且满意;发布后不要再改 {lab} 的文件。")
+    if tag == second:
+        print(f"\n!! {lab} 已经 release 过一次(tag {lab})。这次是第二次,也是最后一次。\n"
+              f"!! 按课程通知,第二次 release 的 tag 和标题必须是 {second}(用 {lab} 可能丢分),\n"
+              f"!! 所以这次会发 {second}。旧的 {lab} 保持不动、不会被删除。\n"
+              f"!! 这个名额是给误发准备的保险,用掉以后课程不会再给额外机会。")
 
-    # 4. 人工确认。重发按仓库 Readme 2.5:先删旧 Release,再删 tag,然后重新发布
-    if old or tag_exists:
-        print(f"\n!! {lab} 已经 release 过"
-              + (f"(已有 {len(old)} 个 tag 为 {lab} 的 Release)" if old else "(远端已有 tag)")
-              + "。\n"
-              f"!! 按仓库 Readme 2.5,重新 release 需要先删除旧 Release 和 tag {lab},再重新发布。\n"
-              f"!! 删除不可恢复。\n"
-              f"!! 另外 Guide 5.4 与 Lab 说明写的是「只能 release 一次」,与 Readme 2.5 不一致,风险自负。")
-        if ask(f"确认删除旧的并重新发布请输入 rerelease {lab}") != f"rerelease {lab}":
-            die("没有确认,已取消,什么都没删、什么都没发。")
-        drop_old_release(repo, owner, name, token, lab, old)
-    elif ask(f"确认发布请输入 {lab}") != lab:
+    # 4. 人工确认:输入的必须正好是这次要发的 tag
+    if ask(f"确认发布请输入 {tag}") != tag:
         die("没有确认,已取消,什么都没发。")
 
     status, data = api("POST", f"/repos/{owner}/{name}/releases", token, {
-        "tag_name": lab, "name": lab, "target_commitish": branch,
+        "tag_name": tag, "name": tag, "target_commitish": branch,
         "draft": False, "prerelease": False})
     if status not in (200, 201):
         die(f"发布失败(HTTP {status} {data.get('message', '')})。可到网页上手动发。")
@@ -552,9 +539,12 @@ def main(argv):
         return
 
     if argv[0] == "release":
-        if len(argv) != 2 or not re.fullmatch(r"lab\d+", argv[1]):
-            die("用法: submit release lab1")
-        release(*ensure_config(cfg), argv[1])
+        m = re.fullmatch(r"(lab\d+)(-2)?", argv[1]) if len(argv) == 2 else None
+        if not m:
+            die("用法: submit release lab2(第一次还是第二次由工具判断,第二次自动用 lab2-2)")
+        if m.group(2):
+            info(f"不用写 -2:工具会自己判断这是第几次 release。按 {m.group(1)} 处理。")
+        release(*ensure_config(cfg), m.group(1))
         return
 
     lab, rest = argv[0], argv[1:]

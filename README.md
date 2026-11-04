@@ -70,14 +70,19 @@ submit <lab> [<task>] [feat|fix] [noheader]
 ## Release
 
 ```powershell
-submit release lab1
+submit release lab2
 ```
 
-发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab1`。通过后需**手动输入 `lab1` 确认**才会发布。
+第一次还是第二次由工具判断，命令都一样。发布前自动检查：本地与远端一致、最新提交的 scope 等于 `lab2`。
 
-**重新 release**：如果 `lab1` 已经发过（远端已有 tag 或同名 Release，含草稿），工具会明确提示，并按仓库 Readme 2.5 的流程操作：需输入 `rerelease lab1` 确认，然后依次删除旧 Release、删除 tag `lab1`（API 失败时改用 `git push` 删除）、清掉本地残留的同名 tag，最后用当前最新提交重新发布。任一步失败即停止，不会发布。
+| 情况 | 行为 |
+|---|---|
+| 还没发过 | tag / 标题用 `lab2`，输入 `lab2` 确认 |
+| `lab2` 已发过（Lab 2 起） | **第二次也是最后一次**：tag / 标题用 `lab2-2`，旧的 `lab2` 不动，输入 `lab2-2` 确认 |
+| `lab2-2` 已存在 | 拒绝，两次机会都用掉了 |
+| `lab1` 已发过 | 拒绝，第二次 release 从 Lab 2 才开始 |
 
-> 课程 Guide 5.4 与 Lab 说明写的是每个 lab **只能 release 一次**，与仓库 Readme 2.5 不一致。本工具按 Readme 2.5 实现，并在重发确认时提示这一点。
+依据是课程通知：从 Lab 2 起每个 lab 可以 release 两次，第二次必须用 `labn-2` 作为 tag 和标题（用 `labn` 可能丢分）；这个名额是防误发的保险，用掉后不再给额外机会。「已发过」指远端已有该 tag，或已有该 tag 的 Release（含草稿）。
 
 首次使用需要 Gitea access token：在 `https://focs.gc.sjtu.edu.cn/git/user/settings/applications` 生成，权限给 repository 读写，粘贴进来即可（每个字符显示为 `*`，cmd 里可 Ctrl+V 或右键粘贴；验证通过后保存到 `config.json`）。
 
