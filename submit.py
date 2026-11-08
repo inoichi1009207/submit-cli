@@ -297,14 +297,24 @@ def make_ascii(repo: Path, paths):
 
 
 def collect(repo: Path, lab, task):
-    """返回 [(题号, 要 git add 的路径, 源文件)]。task 为 None 表示整个 lab。"""
+    """返回 [(题号, 要 git add 的路径, 源文件)]。task 为 None 表示整个 lab;
+    lab 不分题(下面没有 t1/、t1.c 这类)时题号为 None,提交 lab 目录下所有源文件。"""
     if task:
         paths, srcs = sources_of(repo, lab, task)
         if not paths:
-            die(f"{lab}/{task} 下没有源文件({', '.join(SOURCE_EXTS)})。")
+            die(f"{lab}/{task} 下没有源文件({', '.join(SOURCE_EXTS)})。"
+                f"这个 lab 如果不分题,直接用 submit {lab}。")
         return [(task, paths, srcs)]
+    tasks = all_tasks(repo, lab)
+    if not tasks:
+        # 例如 lab5/ 下只有一个 lab5.c
+        loose = sorted(f for f in (repo / lab).iterdir() if f.is_file() and f.suffix in SOURCE_EXTS)
+        if not loose:
+            die(f"{lab}/ 下既没有题目(t1/、t2/ …),也没有源文件({', '.join(SOURCE_EXTS)})。")
+        info(f"{lab}/ 不分题,提交其中的源文件: {', '.join(f.name for f in loose)}")
+        return [(None, [f"{lab}/{f.name}" for f in loose], loose)]
     found = []
-    for t in all_tasks(repo, lab):
+    for t in tasks:
         p, s = sources_of(repo, lab, t)
         if p:
             found.append((t, p, s))
@@ -345,11 +355,13 @@ def submit(cfg, repo: Path, lab, task, ctype, with_header):
     if ignored:
         info("以下文件被 .gitignore 白名单挡住,不会上传: " + ", ".join(ignored))
 
-    # commit message 只写真正有改动的题;一题都没改(空提交重跑 JOJ3)时写全部
+    # commit message 只写真正有改动的题;一题都没改(空提交重跑 JOJ3)时写全部;
+    # lab 不分题时不写题号
     changed = [t for t, ps, _ in found
                if git(repo, "diff", "--cached", "--quiet", "--", *ps,
                       check=False, capture=True).returncode != 0]
-    message = f"{ctype}({lab}): {' '.join(changed or [t for t, _, _ in found])} ok[joj]"
+    names = [t for t in (changed or [t for t, _, _ in found]) if t]
+    message = f"{ctype}({lab}): {' '.join(names + ['ok[joj]'])}"
     info(f"commit message: {message}")
 
     if changed:

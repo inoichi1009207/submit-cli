@@ -48,6 +48,7 @@ submit <lab> [<task>] [feat|fix] [noheader]
 ```
 
 - `<task>` 省略时提交该 lab 下所有含源文件的题目；commit message 只列出**真正有改动**的题（例如只改了 t2 就是 `fix(lab1): t2 ok[joj]`），一题都没改时列出全部并做空提交。
+- lab 不分题时（例如 `lab5/` 下只有一个 `lab5.c`，没有 `t1/` 这类子目录），`submit lab5` 提交 `lab5/` 下所有源文件（`.c` `.cpp` `.h` `.m`），message 为 `feat(lab5): ok[joj]`。
 - 类型省略时为 `feat`。
 - `lab` 之后的参数顺序随意。
 
