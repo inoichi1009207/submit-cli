@@ -31,6 +31,7 @@ from pathlib import Path
 CLI_DIR = Path(__file__).resolve().parent
 CONFIG = CLI_DIR / "config.json"
 SOURCE_EXTS = (".m", ".c", ".cpp", ".h")
+LOOSE_EXTS = (".c", ".h")  # lab 不分题时只提交这些
 COURSE_HOST = "focs.gc.sjtu.edu.cn"
 API = os.environ.get("SUBMIT_API", f"https://{COURSE_HOST}/git/api/v1")
 TOKEN_PAGE = f"https://{COURSE_HOST}/git/user/settings/applications"
@@ -307,10 +308,10 @@ def collect(repo: Path, lab, task):
         return [(task, paths, srcs)]
     tasks = all_tasks(repo, lab)
     if not tasks:
-        # 例如 lab5/ 下只有一个 lab5.c
-        loose = sorted(f for f in (repo / lab).iterdir() if f.is_file() and f.suffix in SOURCE_EXTS)
+        # 例如 lab5/ 下只有一个 lab5.c。只收 .c/.h:同目录常有 tmp.cpp 之类的草稿,不能带上去
+        loose = sorted(f for f in (repo / lab).iterdir() if f.is_file() and f.suffix in LOOSE_EXTS)
         if not loose:
-            die(f"{lab}/ 下既没有题目(t1/、t2/ …),也没有源文件({', '.join(SOURCE_EXTS)})。")
+            die(f"{lab}/ 下既没有题目(t1/、t2/ …),也没有 {' / '.join(LOOSE_EXTS)} 文件。")
         info(f"{lab}/ 不分题,提交其中的源文件: {', '.join(f.name for f in loose)}")
         return [(None, [f"{lab}/{f.name}" for f in loose], loose)]
     found = []
@@ -334,10 +335,35 @@ def add_headers(repo: Path, srcs, cfg):
             info(f"{rel} 开头已有学号,跳过。")
 
 
+def pull(repo: Path):
+    """git pull --ff-only;失败时说清楚原因和怎么办,而不是只丢一句「pull 失败」。"""
+    info("$ git pull --ff-only")
+    res = git(repo, "pull", "--ff-only", check=False, capture=True)
+    print(res.stdout, end="")
+    if res.returncode == 0:
+        return
+    print(res.stderr, file=sys.stderr, end="")
+    m = re.search(r"would be overwritten by merge:\n((?:\s+\S.*\n)+)", res.stderr)
+    if m:
+        files = [ln.strip() for ln in m.group(1).splitlines()]
+        untracked = "untracked" in res.stderr
+        die("Gitea 上有你本地没有的提交(比如在网页上上传或修改过文件),拉下来会覆盖你本地"
+            + ("还没提交过的" if untracked else "改过但没提交的") + "文件:\n"
+            + "".join(f"           {f}\n" for f in files)
+            + "         git 拒绝覆盖,你的文件没有被动过。请先决定每个文件保留哪一份:\n"
+              "           - 保留本地版: 先把这些文件挪到仓库外备份,git pull,再拷回来,然后重新 submit\n"
+              "           - 用 Gitea 上的版本: 删掉(或挪走)本地这些文件,再重新 submit\n"
+              "         用 git log HEAD..@{u} 可以看 Gitea 上多出来的是哪些提交。")
+    if "Not possible to fast-forward" in res.stderr or "diverg" in res.stderr:
+        die("本地和 Gitea 上各有对方没有的提交(分叉了),不能自动合并。\n"
+            "         用 git log --oneline HEAD...@{u} 看两边各多了什么;不确定怎么合并就问助教。不要 force push。")
+    die(f"git pull 失败(退出码 {res.returncode}),已停止,没有继续后面的步骤。")
+
+
 def submit(cfg, repo: Path, lab, task, ctype, with_header):
     info(f"仓库: {repo}")
     apply_identity(repo, cfg)
-    git(repo, "pull", "--ff-only")
+    pull(repo)
 
     found = collect(repo, lab, task)
     paths = [p for _, ps, _ in found for p in ps]
